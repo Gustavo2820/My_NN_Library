@@ -87,3 +87,7 @@ def save_results(results, filename='results.json'):
 def save_trains_results(results, filename='train_results.json'):
     with open(filename, 'w') as f:
         json.dump(results, f)
+
+# Fast Fourier Transform
+def fft(func: function):
+    pass
