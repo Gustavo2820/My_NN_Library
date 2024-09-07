@@ -6,10 +6,10 @@ class SGD:
     def __init__(self, learning_rate=0.01):
         self.learning_rate = learning_rate
 
-    def update(self, neural_network: NeuralNetwork):
-        for layer in neural_network.layers:
-            layer.weights -= self.learning_rate * layer.dW
-            layer.biases -= self.learning_rate * layer.dB
+    def update(self, layer):
+        layer.weights -= self.learning_rate * layer.dW
+        squeezed_dB = np.squeeze(layer.dB)
+        layer.biases -= self.learning_rate * squeezed_dB
 
 # Adaptive Moment Estimation
 class Adam:
