@@ -28,11 +28,7 @@ Here's a basic example of how to use MyNNLib to build and train a neural network
 
 ```
 import numpy as np
-from mynnlib.neural_network import NeuralNetwork
-from mynnlib.layers import Dense
-from mynnlib.activations import ReLU, Sigmoid
-from mynnlib.loss_functions import CrossEntropyLoss
-from mynnlib.optimizers import SGD
+from mynnlib import *
 
 # Create a neural network
 nn = NeuralNetwork(loss_func=CrossEntropyLoss())
