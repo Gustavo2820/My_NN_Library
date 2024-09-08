@@ -1,6 +1,6 @@
 import numpy as np
 from .optimizers import SGD, Adam
-from .utils import save_params, load_params
+from .utils import save_params, load_params, zero_pad, next_power_of_2, fft, inverse_fft
 
 class Dense:
     def __init__(self, input_size, output_size, activation=None, optimizer=SGD(learning_rate=0.01)):
@@ -171,7 +171,7 @@ class Conv2D:
 
     def forward(self, inputs):
         """
-        Performs the forward pass of the convolutional layer.
+        Performs the forward pass of the convolutional layer using FFT.
 
         Parameters:
         - inputs: Input data (n_samples, height, width, channels).
@@ -179,7 +179,7 @@ class Conv2D:
         Returns:
         - Output data after applying convolution and activation.
         """
-        
+    
         # Apply padding
         if self.padding > 0:
             inputs = np.pad(inputs, ((0, 0), (self.padding, self.padding), (self.padding, self.padding), (0, 0)), mode="constant")
@@ -190,26 +190,40 @@ class Conv2D:
         output_h = (input_h - kernel_h) // self.stride + 1
         output_w = (input_w - kernel_w) // self.stride + 1
 
-        output = np.zeros((n, output_h, output_w, self.filters))
-        # Convolution operation
-        for i in range(output_h):
-            for j in range(output_w):
-                vertical_start = i * self.stride
-                horizontal_start = j * self.stride
-                vertical_end = vertical_start + kernel_h
-                horizontal_end = horizontal_start + kernel_w
+        # Calculate the size for FFT
+        padded_h = next_power_of_2(input_h + kernel_h - 1)
+        padded_w = next_power_of_2(input_w + kernel_w - 1)
 
-                slice = inputs[:, vertical_start:vertical_end, horizontal_start:horizontal_end, :]
-                for k in range(self.filters):
-                    output[:, i, j, k] = np.sum(slice * self.weights[:, :, :, k], axis=(1, 2, 3)) + self.biases[0, 0, 0, k]
+        # Pad the input and the kernel
+        padded_inputs = zero_pad(inputs, (padded_h, padded_w, input_c))
+        padded_weights = np.zeros((padded_h, padded_w, self.filters))
+    
+        # Place each filter into a 2D array of the same size as padded_inputs
+        for i in range(self.filters):
+            padded_weights[:self.kernel_size[0], :self.kernel_size[1], i] = self.weights[:, :, :, i]
 
+        # Apply FFT
+        fft_inputs = fft(padded_inputs)
+        fft_weights = fft(padded_weights)
+    
+        # Multiply in the frequency domain
+        fft_output = fft_inputs * fft_weights
+    
+        # Apply IFFT
+        convolved = inverse_fft(fft_output)
+    
+        # Crop to the original output size
+        convolved = convolved[:output_h, :output_w, :]
+    
         if self.activation:
-            output = self.activation.forward(output)
-        return output
+            convolved = self.activation.forward(convolved)
+    
+        return convolved
 
+    
     def backward(self, dA):
         """
-        Performs the backward pass for the convolutional layer.
+        Performs the backward pass for the convolutional layer using FFT.
 
         Parameters:
         - dA: Gradient of the cost function w.r.t activated output from the previous layers.
@@ -222,40 +236,28 @@ class Conv2D:
         kernel_h, kernel_w = self.kernel_size
         output_h, output_w, _ = dA.shape
 
-        dA_prev = np.zeros_like(inputs)
-        dW = np.zeros_like(self.weights)
-        dB = np.zeros_like(self.biases)
+        # Compute the size for FFT
+        padded_h = next_power_of_2(input_h + kernel_h - 1)
+        padded_w = next_power_of_2(input_w + kernel_w - 1)
 
-        # Remove the padding for the backward pass
-        if self.padding > 0:
-            inputs = inputs[:, self.padding:-self.padding, self.padding:-self.padding, :]
+        # Pad the input and dA
+        padded_inputs = zero_pad(inputs, (padded_h, padded_w, input_c))
+        padded_dA = zero_pad(dA, (padded_h, padded_w, self.filters))
+
+        # Apply FFT
+        fft_inputs = fft(padded_inputs)
+        fft_dA = fft(padded_dA)
 
         # Compute gradients
-        for i in range(output_h):
-            for j in range(output_w):
-                vertical_start = i * self.stride
-                horizontal_start = j * self.stride
-                vertical_end = vertical_start + kernel_h
-                horizontal_end = horizontal_start + kernel_w
+        fft_dW = fft_inputs * fft_dA
+        fft_dB = fft_dA
 
-                slice = inputs[:, vertical_start:vertical_end, horizontal_start:horizontal_end, :]
+        # Apply IFFT
+        dA_prev = inverse_fft(fft_dA)
+        dW = inverse_fft(fft_dW)
+        dB = np.sum(dA, axis=(0, 1, 2))  # Bias gradients
 
-                for k in range(self.filters):
-                    dW[:, :, :, k] += np.sum(slice * dA[:, i, j, k][:, None, None, None], axis=0)
-                    dB[0, 0, 0, k] += np.sum(dA[:, i, j, k])
-
-        # Compute dA_prev
-        for i in range(output_h):
-            for j in range(output_w):
-                vertical_start = i * self.stride
-                horizontal_start = j * self.stride
-                vertical_end = vertical_start + kernel_h
-                horizontal_end = horizontal_start + kernel_w
-
-                for k in range(self.filters):
-                    dA_prev[:, vertical_start:vertical_end, horizontal_start:horizontal_end, :] += self.weights[:, :, :, k] * dA[:, i, j, k][:, None, None, None]
-
-        if self.padding > 0:
-            dA_prev = dA_prev[:, self.padding:-self.padding, self.padding:-self.padding, :]
+        # Crop the result to the original input size
+        dA_prev = dA_prev[:input_h, :input_w, :]
 
         return dA_prev
