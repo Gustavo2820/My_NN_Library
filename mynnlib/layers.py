@@ -261,3 +261,7 @@ class Conv2D:
         dA_prev = dA_prev[:input_h, :input_w, :]
 
         return dA_prev
+
+
+    def update(self):
+        self.optimizer.update(self)
