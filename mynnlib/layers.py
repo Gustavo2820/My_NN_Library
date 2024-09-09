@@ -265,3 +265,101 @@ class Conv2D:
 
     def update(self):
         self.optimizer.update(self)
+
+class Flatten:
+    def __init__(self):
+        self.input_shape = None
+
+    def forward(self, inputs):
+        """
+        Flatten the input data into a single vector.
+
+        Parameters:
+        - inputs: Input data (n_samples, height, width, channels).
+
+        Returns:
+        - Flattened data (n_samples, height * width * channels).
+        """
+        self.input_shape = inputs.shape
+        n_samples, height, width, channels = self.input_shape
+        return inputs.reshape(n_samples, -1)
+
+    def backward(self, dA):
+        """
+        Reshape the gradient of the loss w.r.t the output to match the input shape.
+
+        Parameters:
+        - dA: Gradient of the loss w.r.t the flattened output.
+
+        Returns:
+        - Gradient of the loss w.r.t the input of the Flatten layer.
+        """
+        n_samples, height, width, channels = self.input_shape
+        return dA.reshape(n_samples, height, width, channels)
+
+class MaxPooling:
+    def __init__(self, pool_size=(2, 2), stride=2):
+        """
+        Initializes the MaxPooling layer.
+
+        Parameters:
+        - pool_size: Size of the pooling window (tuple, e.g., (2, 2)).
+        - stride: Stride of the pooling operation.
+        """
+        self.pool_size = pool_size
+        self.stride = stride
+        self.cache = None
+
+    def forward(self, inputs):
+        """
+        Applies max pooling to the input data.
+
+        Parameters:
+        - inputs: Input data (n_samples, height, width, channels).
+
+        Returns:
+        - Pooled data (n_samples, pooled_height, pooled_width, channels).
+        """
+        n_samples, input_h, input_w, input_c = inputs.shape
+        pool_h, pool_w = self.pool_size
+
+        # Calculate the size of the output
+        output_h = (input_h - pool_h) // self.stride + 1
+        output_w = (input_w - pool_w) // self.stride + 1
+
+        # Create an array to store the pooled results
+        pooled = np.zeros((n_samples, output_h, output_w, input_c))
+
+        # Perform max pooling
+        for i in range(0, input_h - pool_h + 1, self.stride):
+            for j in range(0, input_w - pool_w + 1, self.stride):
+                region = inputs[:, i:i+pool_h, j:j+pool_w, :]
+                pooled[:, i // self.stride, j // self.stride, :] = np.max(region, axis=(1, 2))
+
+        self.cache = inputs
+        return pooled
+
+    def backward(self, dA):
+        """
+        Performs the backward pass of max pooling.
+
+        Parameters:
+        - dA: Gradient of the loss w.r.t the pooled output.
+
+        Returns:
+        - Gradient of the loss w.r.t the input of the MaxPooling layer.
+        """
+        inputs = self.cache
+        n_samples, input_h, input_w, input_c = inputs.shape
+        pool_h, pool_w = self.pool_size
+        dA_prev = np.zeros_like(inputs)
+
+        # Perform the backward pass
+        for i in range(0, input_h - pool_h + 1, self.stride):
+            for j in range(0, input_w - pool_w + 1, self.stride):
+                region = inputs[:, i:i+pool_h, j:j+pool_w, :]
+                max_values = np.max(region, axis=(1, 2))
+                mask = (region == max_values[:, np.newaxis, np.newaxis, :])
+                dA_prev[:, i:i+pool_h, j:j+pool_w, :] += mask * dA[:, i // self.stride, j // self.stride, :]
+
+        return dA_prev

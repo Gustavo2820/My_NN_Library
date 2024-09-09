@@ -1,7 +1,7 @@
 # mynnlib/__init__.py
 
 # Importing classes from layers module
-from mynnlib.layers import Dense, Dropout, BatchNormalization, Conv2D
+from mynnlib.layers import Dense, Dropout, BatchNormalization, Conv2D, Flatten, MaxPooling
 
 # Importing loss functions from loss_functions module
 from mynnlib.loss_functions import MeanSquaredError, CrossEntropyLoss
@@ -23,7 +23,7 @@ from mynnlib.utils import (
 )
 
 __all__ = [
-    'Dense', 'Conv2D', 'Dropout', 'BatchNormalization',
+    'Dense', 'Conv2D', 'Dropout', 'BatchNormalization', 'Flatten', 'MaxPooling',
     'MeanSquaredError', 'CrossEntropyLoss',
     'NeuralNetwork',
     'SGD', 'Adam',
