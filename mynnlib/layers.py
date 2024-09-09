@@ -162,7 +162,7 @@ class Conv2D:
         Parameters:
         - input_shape: Shape of the input data (height, width, channels).
         """
-        n, input_h, input_w, input_c = input_shape
+        input_h, input_w, input_c = input_shape
         kernel_h, kernel_w = self.kernel_size
 
         # Initialize weights with small random values and biases with zeros
