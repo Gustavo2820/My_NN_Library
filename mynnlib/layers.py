@@ -160,7 +160,7 @@ class Conv2D:
         Initializes the weights and biases of the convolutional layer.
 
         Parameters:
-        - input_shape: Shape of the input data (n_samples, height, width, channels).
+        - input_shape: Shape of the input data (height, width, channels).
         """
         n, input_h, input_w, input_c = input_shape
         kernel_h, kernel_w = self.kernel_size
