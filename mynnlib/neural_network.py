@@ -90,7 +90,7 @@ class NeuralNetwork:
         return accuracy(labels, predictions)
 
 
-    def run(self, inputs, save_file):
+    def run(self, inputs, save_file='results.json'):
         predictions = self.forward(inputs)
         results = predictions.toList()
         save_results(results, save_file)
