@@ -6,14 +6,23 @@ def accuracy(y_true, y_pred):
     return np.mean(np.argmax(y_true, axis=1) == np.argmax(y_pred, axis=1))
 
 def save_params(neural_network, filename='network_params.npz'):
+    from .layers import Dense, BatchNormalization, Conv2D, Dropout, Flatten, MaxPooling
     params = {}
     
     for i, layer in enumerate(neural_network.layers):
-        if hasattr(layer, 'weights'):
+        if isinstance(layer, Dense):
             params[f'weights_layer_{i}'] = layer.weights
-        if hasattr(layer, 'biases'):
             params[f'biases_layer_{i}'] = layer.biases
-    
+        
+        elif isinstance(layer, Conv2D):
+            params[f'weights_layer_{i}'] = layer.weights
+            params[f'biases_layer_{i}'] = layer.biases
+        
+        elif isinstance(layer, BatchNormalization):
+            params[f'gamma_layer_{i}'] = layer.gamma
+            params[f'beta_layer_{i}'] = layer.beta
+
+    # Save optimizer parameters if available
     if hasattr(neural_network, 'optimizer'):
         from .optimizers import SGD, Adam
         optimizer = neural_network.optimizer
@@ -26,58 +35,83 @@ def save_params(neural_network, filename='network_params.npz'):
 
     np.savez(filename, **params)
 
-def load_params(neural_network, filename='network_params.npz'):
-    if not os.path.isfile(filename) or os.path.getsize(filename) == 0:
-        for i, layer in enumerate(neural_network.layers):
-            if hasattr(layer, 'weights'):
-                layer.weights = np.random.randn(layer.input_size, layer.output_size) * 0.01
-            if hasattr(layer, 'biases'):
-                layer.biases = np.zeros(layer.output_size)
-        
-        if hasattr(neural_network, 'optimizer'):
-            from .optimizers import SGD, Adam
-            optimizer = neural_network.optimizer
-            if isinstance(optimizer, Adam):
-                optimizer.m = np.zeros_like(neural_network.layers[0].weights)
-                optimizer.v = np.zeros_like(neural_network.layers[0].weights)
-                optimizer.t = 0
-            elif isinstance(optimizer, SGD):
-                optimizer.learning_rate = 0.01
-        
-        save_params(neural_network, filename)
+def load_params(model, filename='network_params.npz'):
+    from .layers import Dense, BatchNormalization, Conv2D, Dropout, Flatten, MaxPooling
+    """
+    Load the parameters of the neural network from a file.
 
-    # Load data from the file
-    data = np.load(filename)
+    Parameters:
+    - model: The neural network model containing layers.
+    - filename: The name of the file from which to load the parameters.
+    """
+    if not os.path.exists(filename):
+        print(f"File {filename} not found. Initializing parameters with default values.")
+        
+        for layer in model.layers:
+            if isinstance(layer, Dense):
+                layer.weights = np.random.randn(*layer.weights.shape) * 0.01
+                layer.biases = np.zeros_like(layer.biases)
+            
+            elif isinstance(layer, Dropout):
+                pass
+            
+            elif isinstance(layer, BatchNormalization):
+                layer.gamma = np.ones_like(layer.gamma)
+                layer.beta = np.zeros_like(layer.beta)
+                layer.running_mean = np.zeros_like(layer.running_mean)
+                layer.running_var = np.ones_like(layer.running_var)
+            
+            elif isinstance(layer, Conv2D):
+                layer.weights = np.random.randn(*layer.weights.shape) * 0.01
+                layer.biases = np.zeros_like(layer.biases)
+            
+            elif isinstance(layer, Flatten):
+                pass
+            
+            elif isinstance(layer, MaxPooling):
+                pass
+        
+        return
     
-    # Update the neural network parameters with the loaded data
-    for i, layer in enumerate(neural_network.layers):
-        if hasattr(layer, 'weights') and f'weights_layer_{i}' in data:
-            layer.weights = data[f'weights_layer_{i}']
-        if hasattr(layer, 'biases') and f'biases_layer_{i}' in data:
-            layer.biases = data[f'biases_layer_{i}']
+    # Load parameters from file
+    with open(filename, 'r') as file:
+        params = json.load(file)
     
-    if hasattr(neural_network, 'optimizer'):
-        from .optimizers import SGD, Adam
-        optimizer = neural_network.optimizer
-        if isinstance(optimizer, Adam):
-            if 'adam_m' in data:
-                optimizer.m = data['adam_m']
-            else:
-                optimizer.m = np.zeros_like(neural_network.layers[0].weights)
-            if 'adam_v' in data:
-                optimizer.v = data['adam_v']
-            else:
-                optimizer.v = np.zeros_like(neural_network.layers[0].weights)
-            if 'adam_t' in data:
-                optimizer.t = data['adam_t']
-            else:
-                optimizer.t = 0
-        elif isinstance(optimizer, SGD):
-            if 'sgd_lr' in data:
-                optimizer.learning_rate = data['sgd_lr']
-            else:
-                optimizer.learning_rate = 0.01
-
+    layer_index = 0
+    for layer_name, layer_params in params.items():
+        layer = model.layers[layer_index]
+        if isinstance(layer, Dense):
+            if 'weights' in layer_params:
+                layer.weights = np.array(layer_params['weights'])
+            if 'biases' in layer_params:
+                layer.biases = np.array(layer_params['biases'])
+        
+        elif isinstance(layer, Dropout):
+            pass
+        
+        elif isinstance(layer, BatchNormalization):
+            if 'gamma' in layer_params:
+                layer.gamma = np.array(layer_params['gamma'])
+            if 'beta' in layer_params:
+                layer.beta = np.array(layer_params['beta'])
+            if 'running_mean' in layer_params:
+                layer.running_mean = np.array(layer_params['running_mean'])
+            if 'running_var' in layer_params:
+                layer.running_var = np.array(layer_params['running_var'])
+        
+        elif isinstance(layer, Conv2D):
+            if 'weights' in layer_params:
+                layer.weights = np.array(layer_params['weights'])
+            if 'biases' in layer_params:
+                layer.biases = np.array(layer_params['biases'])
+        
+        elif isinstance(layer, Flatten):
+            pass
+        
+        elif isinstance(layer, MaxPooling):
+            pass
+        
+        layer_index += 1
 
 
 def save_results(results, filename='results.json'):
@@ -94,61 +128,21 @@ def is_power_of_2(n):
 def next_power_of_2(n):
     return 1 << (n - 1).bit_length()
 
-def zero_pad(P, length):
-    return np.pad(P, (0, length - len(P)), mode='constant')
+import numpy as np
 
-def fft(P):
-    # Pad data if necessary
-    n = len(P)
-    if not is_power_of_2(n):
-        new_length = next_power_of_2(n)
-        P = zero_pad(P, new_length)
-        n = new_length
+import numpy as np
 
-    # FFT implementation
-    if n <= 1:
-        return np.array(P, dtype=np.complex128)
-    
-    omega = np.exp(-2j * np.pi / n * np.arange(n))
-    
-    P_even = P[::2]
-    P_odd = P[1::2]
-    
-    y_even = fft(P_even)
-    y_odd = fft(P_odd)
-    
-    y = np.zeros(n, dtype=np.complex128)
-    
-    for j in range(n // 2):
-        y[j] = y_even[j] + omega[j] * y_odd[j]
-        y[j + n // 2] = y_even[j] - omega[j] * y_odd[j]
-    
-    return y
+def zero_pad(P, pad_width):
+    """
+    Pad an array with zeros.
 
-def inverse_fft(P):
-    # Pad data if necessary
-    n = len(P)
-    if not is_power_of_2(n):
-        new_length = next_power_of_2(n)
-        P = zero_pad(P, new_length)
-        n = new_length
+    Parameters:
+    - P: The input array to be padded.
+    - pad_width: A tuple specifying the padding for each dimension, e.g., ((top, bottom), (left, right)).
 
-    # Bit-reversal permutation
-    P_reversed = np.empty_like(P, dtype=complex)
-    for i in range(n):
-        i_reversed = int(f'{i:0{int(np.log2(n))}b}'[::-1], 2)
-        P_reversed[i_reversed] = P[i]
-
-    # FFT computation (same as FFT but with reversed signs for twiddle factors)
-    for size in range(2, n + 1, 2):
-        half_size = size // 2
-        twiddle_factors = np.exp(2j * np.pi * np.arange(half_size) / size)
-        
-        for i in range(0, n, size):
-            for j in range(half_size):
-                t = twiddle_factors[j] * P_reversed[i + j + half_size]
-                u = P_reversed[i + j]
-                P_reversed[i + j] = u + t
-                P_reversed[i + j + half_size] = u - t
-
-    return P_reversed / n
+    Returns:
+    - The padded array.
+    """
+    if not isinstance(pad_width, tuple) or len(pad_width) != P.ndim:
+        raise ValueError("pad_width must be a tuple with the same length as the number of dimensions of P.")
+    return np.pad(P, pad_width, mode='constant')

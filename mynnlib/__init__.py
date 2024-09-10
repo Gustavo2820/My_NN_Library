@@ -18,7 +18,7 @@ from mynnlib.activation_functions import ReLU, Sigmoid, Tanh
 # Importing utility functions from utils module
 from mynnlib.utils import (
     save_params, save_results, save_trains_results, 
-    load_params, accuracy, fft, inverse_fft, 
+    load_params, accuracy,
     is_power_of_2, next_power_of_2, zero_pad
 )
 
@@ -29,6 +29,6 @@ __all__ = [
     'SGD', 'Adam',
     'ReLU', 'Sigmoid', 'Tanh',
     'save_params', 'save_results', 'save_trains_results', 
-    'load_params', 'accuracy', 'fft', 'inverse_fft', 
+    'load_params', 'accuracy',
     'is_power_of_2', 'next_power_of_2', 'zero_pad'
 ]

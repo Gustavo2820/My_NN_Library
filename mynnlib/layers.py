@@ -1,6 +1,6 @@
 import numpy as np
 from .optimizers import SGD, Adam
-from .utils import save_params, load_params, zero_pad, next_power_of_2, fft, inverse_fft
+from .utils import save_params, load_params, zero_pad, next_power_of_2
 
 class Dense:
     def __init__(self, input_size, output_size, activation=None, optimizer=SGD(learning_rate=0.01)):
@@ -134,17 +134,6 @@ class BatchNormalization:
 
 class Conv2D:
     def __init__(self, filters, kernel_size, stride=1, padding=0, activation=None, optimizer=SGD(learning_rate=0.01)):
-        """
-        Initializes the Conv2D layer.
-
-        Parameters:
-        - filters: Number of filters (kernels) to apply.
-        - kernel_size: Size of the convolutional kernels (tuple, e.g., (3, 3)).
-        - stride: Stride (step) of the convolution.
-        - padding: Padding to add around the input.
-        - activation: Activation function to apply after convolution.
-        - optimizer: Optimizer for the layer parameters.
-        """
         self.filters = filters
         self.kernel_size = kernel_size
         self.activation = activation
@@ -156,116 +145,72 @@ class Conv2D:
         self.cache = None
 
     def init_wb(self, input_shape):
-        """
-        Initializes the weights and biases of the convolutional layer.
-
-        Parameters:
-        - input_shape: Shape of the input data (height, width, channels).
-        """
-        input_h, input_w, input_c = input_shape
+        n_samples, input_h, input_w, input_c = input_shape
         kernel_h, kernel_w = self.kernel_size
-
-        # Initialize weights with small random values and biases with zeros
         self.weights = np.random.randn(kernel_h, kernel_w, input_c, self.filters) * 0.01
         self.biases = np.zeros((1, 1, 1, self.filters))
 
     def forward(self, inputs):
-        """
-        Performs the forward pass of the convolutional layer using FFT.
-
-        Parameters:
-        - inputs: Input data (n_samples, height, width, channels).
-
-        Returns:
-        - Output data after applying convolution and activation.
-        """
-    
-        # Apply padding
         if self.padding > 0:
             inputs = np.pad(inputs, ((0, 0), (self.padding, self.padding), (self.padding, self.padding), (0, 0)), mode="constant")
 
-        self.cache = inputs  # Store inputs for backpropagation
-        n, input_h, input_w, input_c = inputs.shape
+        self.cache = inputs
+        n_samples, input_h, input_w, input_c = inputs.shape
         kernel_h, kernel_w = self.kernel_size
-        output_h = (input_h - kernel_h) // self.stride + 1
-        output_w = (input_w - kernel_w) // self.stride + 1
+        output_h = (input_h - kernel_h + 2 * self.padding) // self.stride + 1
+        output_w = (input_w - kernel_w + 2 * self.padding) // self.stride + 1
 
-        # Calculate the size for FFT
-        padded_h = next_power_of_2(input_h + kernel_h - 1)
-        padded_w = next_power_of_2(input_w + kernel_w - 1)
+        output = np.zeros((n_samples, output_h, output_w, self.filters))
 
-        # Pad the input and the kernel
-        padded_inputs = zero_pad(inputs, (padded_h, padded_w, input_c))
-        padded_weights = np.zeros((padded_h, padded_w, self.filters))
-    
-        # Place each filter into a 2D array of the same size as padded_inputs
         for i in range(self.filters):
-            padded_weights[:self.kernel_size[0], :self.kernel_size[1], i] = self.weights[:, :, :, i]
+            for j in range(output_h):
+                for k in range(output_w):
+                    h_start = j * self.stride
+                    h_end = h_start + kernel_h
+                    w_start = k * self.stride
+                    w_end = w_start + kernel_w
 
-        # Apply FFT
-        fft_inputs = fft(padded_inputs)
-        fft_weights = fft(padded_weights)
-    
-        # Multiply in the frequency domain
-        fft_output = fft_inputs * fft_weights
-    
-        # Apply IFFT
-        convolved = inverse_fft(fft_output)
-    
-        # Crop to the original output size
-        convolved = convolved[:output_h, :output_w, :]
-    
+                    patch = inputs[:, h_start:h_end, w_start:w_end, :]
+                    output[:, j, k, i] = np.sum(patch * self.weights[:, :, :, i], axis=(1, 2, 3)) + self.biases[0, 0, 0, i]
+
         if self.activation:
-            convolved = self.activation.forward(convolved)
-    
-        return convolved
+            output = self.activation.forward(output)
 
-    
+        return output
+
     def backward(self, dA):
-        """
-        Performs the backward pass for the convolutional layer using FFT.
-
-        Parameters:
-        - dA: Gradient of the cost function w.r.t activated output from the previous layers.
-
-        Returns:
-        - dA_prev: Gradient of the cost function w.r.t the input of the convolutional layer.
-        """
         inputs = self.cache
-        n, input_h, input_w, input_c = inputs.shape
+        n_samples, input_h, input_w, input_c = inputs.shape
         kernel_h, kernel_w = self.kernel_size
-        output_h, output_w, _ = dA.shape
+        _, output_h, output_w, _ = dA.shape
 
-        # Compute the size for FFT
-        padded_h = next_power_of_2(input_h + kernel_h - 1)
-        padded_w = next_power_of_2(input_w + kernel_w - 1)
+        padded_inputs = zero_pad(inputs, ((0, 0), (0, input_h - input_h), (0, input_w - input_w), (0, 0)))
+        padded_dA = zero_pad(dA, ((0, 0), (0, input_h - output_h), (0, input_w - output_w), (0, 0)))
+        print(f"Padded Inputs shape for backward: {padded_inputs.shape}")
+        print(f"Padded dA shape for backward: {padded_dA.shape}")
 
-        # Pad the input and dA
-        padded_inputs = zero_pad(inputs, (padded_h, padded_w, input_c))
-        padded_dA = zero_pad(dA, (padded_h, padded_w, self.filters))
+        fft_inputs = np.fft.fftn(padded_inputs)
+        fft_dA = np.fft.fftn(padded_dA)
+        print(f"FFT Inputs shape for backward: {fft_inputs.shape}")
+        print(f"FFT dA shape for backward: {fft_dA.shape}")
 
-        # Apply FFT
-        fft_inputs = fft(padded_inputs)
-        fft_dA = fft(padded_dA)
-
-        # Compute gradients
         fft_dW = fft_inputs * fft_dA
         fft_dB = fft_dA
 
-        # Apply IFFT
-        dA_prev = inverse_fft(fft_dA)
-        dW = inverse_fft(fft_dW)
-        dB = np.sum(dA, axis=(0, 1, 2))  # Bias gradients
+        dA_prev = np.fft.ifftn(fft_dA)
+        dW = np.fft.ifftn(fft_dW)
+        dB = np.sum(dA, axis=(0, 1, 2))
+        print(f"Gradient shape dA_prev: {dA_prev.shape}")
+        print(f"Gradient shape dW: {dW.shape}")
 
-        # Crop the result to the original input size
-        dA_prev = dA_prev[:input_h, :input_w, :]
+        dA_prev = np.real(dA_prev)
+        dA_prev = dA_prev[:, :input_h, :input_w, :]
+        print(f"dA_prev shape after cropping: {dA_prev.shape}")
 
         return dA_prev
 
-
     def update(self):
         self.optimizer.update(self)
-
 class Flatten:
     def __init__(self):
         self.input_shape = None
@@ -299,67 +244,43 @@ class Flatten:
 
 class MaxPooling:
     def __init__(self, pool_size=(2, 2), stride=2):
-        """
-        Initializes the MaxPooling layer.
-
-        Parameters:
-        - pool_size: Size of the pooling window (tuple, e.g., (2, 2)).
-        - stride: Stride of the pooling operation.
-        """
         self.pool_size = pool_size
         self.stride = stride
         self.cache = None
 
     def forward(self, inputs):
-        """
-        Applies max pooling to the input data.
+        (n_samples, input_h, input_w, input_c) = inputs.shape
+        (pool_h, pool_w) = self.pool_size
+        stride_h = stride_w = self.stride
 
-        Parameters:
-        - inputs: Input data (n_samples, height, width, channels).
+        output_h = (input_h - pool_h) // stride_h + 1
+        output_w = (input_w - pool_w) // stride_w + 1
 
-        Returns:
-        - Pooled data (n_samples, pooled_height, pooled_width, channels).
-        """
-        n_samples, input_h, input_w, input_c = inputs.shape
-        pool_h, pool_w = self.pool_size
-
-        # Calculate the size of the output
-        output_h = (input_h - pool_h) // self.stride + 1
-        output_w = (input_w - pool_w) // self.stride + 1
-
-        # Create an array to store the pooled results
         pooled = np.zeros((n_samples, output_h, output_w, input_c))
-
-        # Perform max pooling
-        for i in range(0, input_h - pool_h + 1, self.stride):
-            for j in range(0, input_w - pool_w + 1, self.stride):
-                region = inputs[:, i:i+pool_h, j:j+pool_w, :]
-                pooled[:, i // self.stride, j // self.stride, :] = np.max(region, axis=(1, 2))
-
         self.cache = inputs
+
+        for i in range(0, input_h - pool_h + 1, stride_h):
+            for j in range(0, input_w - pool_w + 1, stride_w):
+                pooled[:, i // stride_h, j // stride_w, :] = np.max(
+                    inputs[:, i:i + pool_h, j:j + pool_w, :], axis=(1, 2)
+                )
+        
         return pooled
 
     def backward(self, dA):
-        """
-        Performs the backward pass of max pooling.
+        (n_samples, input_h, input_w, input_c) = self.cache.shape
+        (pool_h, pool_w) = self.pool_size
+        stride_h = stride_w = self.stride
+        (n_samples, output_h, output_w, _) = dA.shape
 
-        Parameters:
-        - dA: Gradient of the loss w.r.t the pooled output.
+        dX = np.zeros_like(self.cache)
 
-        Returns:
-        - Gradient of the loss w.r.t the input of the MaxPooling layer.
-        """
-        inputs = self.cache
-        n_samples, input_h, input_w, input_c = inputs.shape
-        pool_h, pool_w = self.pool_size
-        dA_prev = np.zeros_like(inputs)
+        for i in range(0, input_h - pool_h + 1, stride_h):
+            for j in range(0, input_w - pool_w + 1, stride_w):
+                max_mask = (self.cache[:, i:i + pool_h, j:j + pool_w, :] == np.max(
+                    self.cache[:, i:i + pool_h, j:j + pool_w, :], axis=(1, 2), keepdims=True
+                ))
+                dX[:, i:i + pool_h, j:j + pool_w, :] += max_mask * dA[:, i // stride_h, j // stride_w, :][:, np.newaxis, np.newaxis, :]
 
-        # Perform the backward pass
-        for i in range(0, input_h - pool_h + 1, self.stride):
-            for j in range(0, input_w - pool_w + 1, self.stride):
-                region = inputs[:, i:i+pool_h, j:j+pool_w, :]
-                max_values = np.max(region, axis=(1, 2))
-                mask = (region == max_values[:, np.newaxis, np.newaxis, :])
-                dA_prev[:, i:i+pool_h, j:j+pool_w, :] += mask * dA[:, i // self.stride, j // self.stride, :]
+        return dX
 
-        return dA_prev
