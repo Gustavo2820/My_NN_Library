@@ -6,7 +6,7 @@ class NeuralNetwork:
     # Initialize the neural network
     def __init__(self, loss_func):
         self.layers = []  # List to store layers of the network
-        self.loss = loss_func 
+        self.loss = loss_func # Determines the loss function
 
     def add_layer(self, layer):
         self.layers.append(layer)
@@ -23,12 +23,12 @@ class NeuralNetwork:
             X = layer.forward(X)  # Forward pass through each layer
             self.activations.append(X)  # Store activations
         return X
-    
+
     # Backward pass: Compute gradients for backpropagation
     # Y: True labels
-    def backward(self, Y):
+    def backward(self, labels):
         # Compute gradient of the loss function with respect to the final layer's activation and the true labels
-        dA = self.loss.backward(self.activations[-1], Y)
+        dA = self.loss.backward(self.activations[-1], labels)
         # Backpropagate through each layer in reverse order
         for layer in reversed(self.layers):
             dA = layer.backward(dA)
@@ -39,49 +39,84 @@ class NeuralNetwork:
         for layer in self.layers:
             layer.update()
 
-    def train(self, inputs, labels, epochs=10, batch_size=32, filename='network_params.npz', save_file='train_results.json'):
-        load_params(self, filename)
-        initial_loss = 0
+    def train(
+        self,
+        inputs,
+        labels,
+        epochs=10,
+        batch_size=32,
+        filename="network_params.npz",
+        save_file="train_results.json",
+    ):
+        initial_loss = None
         epoch_losses = {}
+
         for epoch in range(epochs):
-            epoch_loss = 0
-            num_batches = len(inputs) // batch_size
+            epoch_loss = 0.0
+            num_batches = 0
+
             for i in range(0, len(inputs), batch_size):
                 input_batch = inputs[i:i + batch_size]
                 label_batch = labels[i:i + batch_size]
-            
+
                 # Forward pass
-                a = self.forward(input_batch)  
-                loss = self.loss.forward(a, label_batch)
+                predictions = self.forward(input_batch)
+
+                # Calculate batch loss
+                loss = self.loss.forward(predictions, label_batch)
                 epoch_loss += loss
-            
+
                 # Backward pass
-                dA = self.loss.backward(a, label_batch)  # Ensure backward returns gradients
-                self.backward(dA)
+                self.backward(label_batch)
+
+                # Update trainable parameters
                 self.update()
-            
-                if (i % 500 == 0):
-                    print(f"Epoch {epoch+1}   Batch {i}   Loss: {loss}")
-        
+
+                num_batches += 1
+
+                if i % 500 == 0:
+                    print(
+                        f"Epoch {epoch + 1} "
+                        f"Batch {num_batches} "
+                        f"Loss: {loss:.6f}"
+                    )
+
             avg_loss = epoch_loss / num_batches
             epoch_losses[epoch + 1] = avg_loss
-            print(f"Epoch {epoch+1}/{epochs}   Average Loss: {avg_loss}")
-        
+
+            print(
+                f"Epoch {epoch + 1}/{epochs} "
+                f"Average Loss: {avg_loss:.6f}"
+            )
+
             if epoch == 0:
                 initial_loss = avg_loss
-    
+
         final_loss = avg_loss
-        loss_reduction = (initial_loss - final_loss) / initial_loss * 100
-        print(f"Training complete. Loss decreased by {loss_reduction:.2f}%")
-    
+
+        if initial_loss != 0:
+            loss_reduction = (
+                (initial_loss - final_loss)
+                / initial_loss
+                * 100
+            )
+        else:
+            loss_reduction = 0.0
+
+        print(
+            f"Training complete. "
+            f"Loss decreased by {loss_reduction:.2f}%"
+        )
+
         save_params(self, filename)
 
         results = {
-            'initial_loss': initial_loss,
-            'final_loss': final_loss,
-            'loss_reduction': loss_reduction,
-            'epoch_losses': epoch_losses
+            "initial_loss": initial_loss,
+            "final_loss": final_loss,
+            "loss_reduction": loss_reduction,
+            "epoch_losses": epoch_losses,
         }
+
         save_trains_results(results, save_file)
 
 
