@@ -1,148 +1,278 @@
-import numpy as np
-import os
 import json
+import os
+
+import numpy as np
+
 
 def accuracy(y_true, y_pred):
-    return np.mean(np.argmax(y_true, axis=1) == np.argmax(y_pred, axis=1))
+    """
+    Calculate classification accuracy.
 
-def save_params(neural_network, filename='network_params.npz'):
-    from .layers import Dense, BatchNormalization, Conv2D, Dropout, Flatten, MaxPooling
+    This function assumes that both `y_true` and `y_pred` are represented
+    as arrays where each row contains scores or one-hot encoded values for
+    each class.
+
+    Parameters
+    ----------
+    y_true : np.ndarray
+        Ground-truth labels, usually in one-hot encoded format.
+
+    y_pred : np.ndarray
+        Model predictions or class scores.
+
+    Returns
+    -------
+    float
+        Fraction of correctly classified samples, between 0 and 1.
+    """
+    true_classes = np.argmax(y_true, axis=1)
+    predicted_classes = np.argmax(y_pred, axis=1)
+
+    return np.mean(true_classes == predicted_classes)
+
+
+def save_params(neural_network, filename="network_params.npz"):
+    """
+    Save all trainable parameters of a neural network to a NumPy `.npz` file.
+
+    The parameters are stored using keys based on the layer index. For example:
+
+        weights_layer_0
+        biases_layer_0
+        gamma_layer_2
+        beta_layer_2
+
+    Currently supported layers:
+    - Dense
+    - Conv2D
+    - BatchNormalization
+
+    Parameters
+    ----------
+    neural_network : NeuralNetwork
+        Neural network instance containing the layers to be saved.
+
+    filename : str, optional
+        Output file path. Defaults to ``network_params.npz``.
+
+    Notes
+    -----
+    This function only stores trainable layer parameters. Model architecture
+    itself is not serialized, so the network structure must already exist
+    before loading these parameters again.
+    """
+    from .layers import BatchNormalization, Conv2D, Dense
+
     params = {}
-    
+
     for i, layer in enumerate(neural_network.layers):
         if isinstance(layer, Dense):
-            params[f'weights_layer_{i}'] = layer.weights
-            params[f'biases_layer_{i}'] = layer.biases
-        
-        elif isinstance(layer, Conv2D):
-            params[f'weights_layer_{i}'] = layer.weights
-            params[f'biases_layer_{i}'] = layer.biases
-        
-        elif isinstance(layer, BatchNormalization):
-            params[f'gamma_layer_{i}'] = layer.gamma
-            params[f'beta_layer_{i}'] = layer.beta
+            params[f"weights_layer_{i}"] = layer.weights
+            params[f"biases_layer_{i}"] = layer.biases
 
-    # Save optimizer parameters if available
-    if hasattr(neural_network, 'optimizer'):
-        from .optimizers import SGD, Adam
-        optimizer = neural_network.optimizer
-        if isinstance(optimizer, Adam):
-            params['adam_m'] = optimizer.m
-            params['adam_v'] = optimizer.v
-            params['adam_t'] = optimizer.t
-        elif isinstance(optimizer, SGD):
-            params['sgd_lr'] = optimizer.learning_rate
+        elif isinstance(layer, Conv2D):
+            params[f"weights_layer_{i}"] = layer.weights
+            params[f"biases_layer_{i}"] = layer.biases
+
+        elif isinstance(layer, BatchNormalization):
+            params[f"gamma_layer_{i}"] = layer.gamma
+            params[f"beta_layer_{i}"] = layer.beta
 
     np.savez(filename, **params)
 
-def load_params(model, filename='network_params.npz'):
-    from .layers import Dense, BatchNormalization, Conv2D, Dropout, Flatten, MaxPooling
-    """
-    Load the parameters of the neural network from a file.
 
-    Parameters:
-    - model: The neural network model containing layers.
-    - filename: The name of the file from which to load the parameters.
+def load_params(model, filename):
     """
+    Load previously saved neural network parameters from a `.npz` file.
+
+    The model architecture must already exist and be compatible with the
+    parameters stored in the file.
+
+    Parameters
+    ----------
+    model : NeuralNetwork
+        Neural network instance whose layers will receive the loaded
+        parameters.
+
+    filename : str
+        Path to the `.npz` parameter file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the requested parameter file does not exist.
+
+    Notes
+    -----
+    This function expects files created by :func:`save_params`.
+
+    Loading parameters does not reconstruct the model architecture.
+    The caller must create the network with the correct layer structure
+    before calling this function.
+    """
+    from .layers import BatchNormalization, Conv2D, Dense
+
     if not os.path.exists(filename):
-        print(f"File {filename} not found. Initializing parameters with default values.")
-        
-        for layer in model.layers:
+        raise FileNotFoundError(
+            f"Parameter file not found: {filename}"
+        )
+
+    with np.load(filename, allow_pickle=False) as params:
+        for i, layer in enumerate(model.layers):
             if isinstance(layer, Dense):
-                layer.weights = np.random.randn(*layer.weights.shape) * 0.01
-                layer.biases = np.zeros_like(layer.biases)
-            
-            elif isinstance(layer, Dropout):
-                pass
-            
-            elif isinstance(layer, BatchNormalization):
-                layer.gamma = np.ones_like(layer.gamma)
-                layer.beta = np.zeros_like(layer.beta)
-                layer.running_mean = np.zeros_like(layer.running_mean)
-                layer.running_var = np.ones_like(layer.running_var)
-            
+                weights_key = f"weights_layer_{i}"
+                biases_key = f"biases_layer_{i}"
+
+                if weights_key in params:
+                    layer.weights = params[weights_key].copy()
+
+                if biases_key in params:
+                    layer.biases = params[biases_key].copy()
+
             elif isinstance(layer, Conv2D):
-                layer.weights = np.random.randn(*layer.weights.shape) * 0.01
-                layer.biases = np.zeros_like(layer.biases)
-            
-            elif isinstance(layer, Flatten):
-                pass
-            
-            elif isinstance(layer, MaxPooling):
-                pass
-        
-        return
-    
-    # Load parameters from file
-    with open(filename, 'r') as file:
-        params = json.load(file)
-    
-    layer_index = 0
-    for layer_name, layer_params in params.items():
-        layer = model.layers[layer_index]
-        if isinstance(layer, Dense):
-            if 'weights' in layer_params:
-                layer.weights = np.array(layer_params['weights'])
-            if 'biases' in layer_params:
-                layer.biases = np.array(layer_params['biases'])
-        
-        elif isinstance(layer, Dropout):
-            pass
-        
-        elif isinstance(layer, BatchNormalization):
-            if 'gamma' in layer_params:
-                layer.gamma = np.array(layer_params['gamma'])
-            if 'beta' in layer_params:
-                layer.beta = np.array(layer_params['beta'])
-            if 'running_mean' in layer_params:
-                layer.running_mean = np.array(layer_params['running_mean'])
-            if 'running_var' in layer_params:
-                layer.running_var = np.array(layer_params['running_var'])
-        
-        elif isinstance(layer, Conv2D):
-            if 'weights' in layer_params:
-                layer.weights = np.array(layer_params['weights'])
-            if 'biases' in layer_params:
-                layer.biases = np.array(layer_params['biases'])
-        
-        elif isinstance(layer, Flatten):
-            pass
-        
-        elif isinstance(layer, MaxPooling):
-            pass
-        
-        layer_index += 1
+                weights_key = f"weights_layer_{i}"
+                biases_key = f"biases_layer_{i}"
+
+                if weights_key in params:
+                    layer.weights = params[weights_key].copy()
+
+                if biases_key in params:
+                    layer.biases = params[biases_key].copy()
+
+            elif isinstance(layer, BatchNormalization):
+                gamma_key = f"gamma_layer_{i}"
+                beta_key = f"beta_layer_{i}"
+
+                if gamma_key in params:
+                    layer.gamma = params[gamma_key].copy()
+
+                if beta_key in params:
+                    layer.beta = params[beta_key].copy()
 
 
-def save_results(results, filename='results.json'):
-    with open(filename, 'w') as f:
-        json.dump(results, f)
+def save_results(results, filename="results.json"):
+    """
+    Save inference results to a JSON file.
 
-def save_trains_results(results, filename='train_results.json'):
-    with open(filename, 'w') as f:
-        json.dump(results, f)
+    Parameters
+    ----------
+    results : object
+        JSON-serializable object containing prediction results.
+
+    filename : str, optional
+        Output file path. Defaults to ``results.json``.
+    """
+    with open(filename, "w", encoding="utf-8") as file:
+        json.dump(results, file, indent=4)
+
+
+def save_trains_results(results, filename="train_results.json"):
+    """
+    Save training results or metrics to a JSON file.
+
+    Parameters
+    ----------
+    results : object
+        JSON-serializable training information, such as losses,
+        accuracies or epoch statistics.
+
+    filename : str, optional
+        Output file path. Defaults to ``train_results.json``.
+    """
+    with open(filename, "w", encoding="utf-8") as file:
+        json.dump(results, file, indent=4)
+
 
 def is_power_of_2(n):
-    return (n > 0) and (n & (n - 1)) == 0
+    """
+    Check whether an integer is a power of two.
+
+    Parameters
+    ----------
+    n : int
+        Integer to test.
+
+    Returns
+    -------
+    bool
+        True if `n` is a positive power of two, otherwise False.
+
+    Examples
+    --------
+    >>> is_power_of_2(8)
+    True
+
+    >>> is_power_of_2(10)
+    False
+    """
+    return n > 0 and (n & (n - 1)) == 0
+
 
 def next_power_of_2(n):
+    """
+    Return the smallest power of two greater than or equal to `n`.
+
+    Parameters
+    ----------
+    n : int
+        Positive integer.
+
+    Returns
+    -------
+    int
+        Smallest power of two greater than or equal to `n`.
+
+    Examples
+    --------
+    >>> next_power_of_2(5)
+    8
+
+    >>> next_power_of_2(16)
+    16
+    """
+    if n <= 0:
+        raise ValueError("n must be a positive integer.")
+
     return 1 << (n - 1).bit_length()
 
-import numpy as np
 
-import numpy as np
-
-def zero_pad(P, pad_width):
+def zero_pad(array, pad_width):
     """
     Pad an array with zeros.
 
-    Parameters:
-    - P: The input array to be padded.
-    - pad_width: A tuple specifying the padding for each dimension, e.g., ((top, bottom), (left, right)).
+    This is a thin wrapper around ``numpy.pad`` using constant zero padding.
 
-    Returns:
-    - The padded array.
+    Parameters
+    ----------
+    array : np.ndarray
+        Input array.
+
+    pad_width : tuple
+        Padding configuration. Its length must match the number of dimensions
+        in the input array.
+
+        Example for a 2D array:
+
+            ((top, bottom), (left, right))
+
+    Returns
+    -------
+    np.ndarray
+        Zero-padded array.
+
+    Raises
+    ------
+    ValueError
+        If `pad_width` is not a tuple or does not contain one entry for each
+        dimension of the input array.
     """
-    if not isinstance(pad_width, tuple) or len(pad_width) != P.ndim:
-        raise ValueError("pad_width must be a tuple with the same length as the number of dimensions of P.")
-    return np.pad(P, pad_width, mode='constant')
+    if not isinstance(pad_width, tuple):
+        raise ValueError("pad_width must be a tuple.")
+
+    if len(pad_width) != array.ndim:
+        raise ValueError(
+            "pad_width must contain one padding specification "
+            "for each dimension of the input array."
+        )
+
+    return np.pad(array, pad_width, mode="constant")
